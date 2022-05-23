@@ -1,0 +1,94 @@
+from keras.layers.advanced_activations import LeakyReLU, ReLU
+from keras.layers.normalization.batch_normalization import BatchNormalization
+from tensorflow.keras.optimizers import Adam
+import tensorflow as tf
+import keras
+from keras.layers import Input, Dense, Conv2D, MaxPooling2D, Dropout, Flatten, concatenate, Add, GlobalAveragePooling2D
+from keras.models import Model
+from tensorflow.keras import regularizers
+
+l2_param = 0.001
+
+optimizer = tf.keras.optimizers.Adam( learning_rate=2e-3,
+    beta_1=0.9,
+    beta_2=0.999,
+    epsilon=1e-07,
+    amsgrad=False,
+    name='Adam')
+
+#Conv-BatchNorm-ReLU block
+def conv_batchnorm_relu(x, filters, kernel_size, strides=1):
+    x = Conv2D(
+        filters=filters, 
+        kernel_size=kernel_size, 
+        strides=strides, 
+        padding = 'same',
+        kernel_regularizer = tf.keras.regularizers.l2(l2_param),
+        bias_regularizer=tf.keras.regularizers.l2(l2_param))(x)
+    x = BatchNormalization()(x)
+    x = ReLU()(x)
+    return x
+
+#Identity block
+def identity_block(tensor, filters):
+    
+    x = conv_batchnorm_relu(tensor, filters=filters, kernel_size=1, strides=1)
+    x = conv_batchnorm_relu(x, filters=filters, kernel_size=3, strides=1)
+    x = Conv2D(filters=4*filters, kernel_size=1, strides=1)(x)
+    x = BatchNormalization()(x)
+    x = Add()([tensor,x])    #skip connection
+    x = ReLU()(x)
+    
+    return x
+
+#Projection block
+def projection_block(tensor, filters, strides):
+    
+    #left stream
+    x = conv_batchnorm_relu(tensor, filters=filters, kernel_size=1, strides=strides)
+    x = conv_batchnorm_relu(x, filters=filters, kernel_size=3, strides=1)
+    x = Conv2D(filters=4*filters, kernel_size=1, strides=1)(x)
+    x = BatchNormalization()(x)
+    
+    #right stream
+    shortcut = Conv2D(filters=4*filters, kernel_size=1, strides=strides)(tensor)
+    shortcut = BatchNormalization()(shortcut)
+    
+    x = Add()([shortcut,x])    #skip connection
+    x = ReLU()(x)
+    
+    return x
+
+
+#Adding a projection block to smaller the images /2 then add identity block 
+def resnet_block(x, filters, reps, strides):
+    
+    x = projection_block(x, filters, strides)
+    for _ in range(reps-1):
+        x = identity_block(x,filters)
+        
+    return x
+
+
+
+
+def building_network(img_shape):
+
+    input = keras.layers.Input(shape=(img_shape))
+
+    x = conv_batchnorm_relu(input, filters=8, kernel_size=7, strides=2)
+    x = resnet_block(x, filters=8, reps =1, strides=2)
+    x = resnet_block(x, filters=16, reps =1, strides=2)
+    x = resnet_block(x, filters=32, reps =1, strides=2)
+    x = GlobalAveragePooling2D()(x)        
+
+    #Size 8x8
+    #FC block image size 8x8
+    flatten = Flatten()(x)
+    classification = Dense(units = 1, activation="sigmoid")(flatten)
+
+    model = Model(input, classification)
+
+    model.compile(optimizer=optimizer, loss='binary_crossentropy', metrics=['accuracy',  ])
+
+    return model
