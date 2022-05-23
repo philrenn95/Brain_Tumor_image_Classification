@@ -1,0 +1,67 @@
+import os 
+import numpy as np
+import cv2
+import glob
+import sklearn
+from skimage.util import random_noise
+import tensorflow as tf
+
+class Data_pipeline:
+    def __init__(self, directory,  img_shape):
+        self.dir = directory
+        self.dir_yes = self.dir + "//yes"
+        self.dir_no = self.dir + "//no"
+        self.img_shape = img_shape
+        self.image_gen = tf.keras.preprocessing.image.ImageDataGenerator(horizontal_flip = True, vertical_flip = True,)
+
+
+    def import_data(self, validation_size = 0.1):
+        x = []
+        y = []
+
+        for momen_file in glob.glob(self.dir_yes+"//*"):
+            image = cv2.imread(momen_file, 0)
+            if (image.shape[0] != self.img_shape[0] or image.shape[1]!= self.img_shape[1]):
+                image = cv2.resize(image, (self.img_shape[0], self.img_shape[1]))
+
+            image = np.array(image)
+            cv2.normalize(image, image, 0, 255, cv2.NORM_MINMAX)
+            image = image/255.0
+            x.append(image)
+            y.append(1)
+
+        for momen_file in glob.glob(self.dir_no+"//*"):
+            image = cv2.imread(momen_file, 0)
+            if (image.shape[0] != self.img_shape[0] or image.shape[1]!= self.img_shape[1]):
+                image = cv2.resize(image, (self.img_shape[0], self.img_shape[1]))
+            image = np.array(image)
+            cv2.normalize(image, image, 0, 255, cv2.NORM_MINMAX)
+            image = image/255.0
+            x.append(image)
+            y.append(0)
+
+
+
+        from sklearn.model_selection import train_test_split
+        x_train, x_validation, y_train, y_validation = train_test_split(x, y, test_size = validation_size)
+
+        x_train = np.array(x_train)
+        y_train = np.array(y_train)
+
+        x_validation = np.array(x_validation)
+        y_validation = np.array(y_validation)
+
+        return x_train, x_validation, y_train, y_validation
+
+
+
+    def augmentaion(self, x_train):
+
+        for i in range(0, len(x_train)):
+            x_train[i] = self.image_gen.random_transform( x_train[i])
+            x_train[i] = random_noise( x_train[i], mode='s&p',amount=0.001)
+
+        return x_train
+
+
+
