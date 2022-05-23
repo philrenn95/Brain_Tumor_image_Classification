@@ -1,0 +1,54 @@
+import numpy as np
+import tensorflow as tf
+import os
+import datapipeline
+import RESNET
+import time
+
+
+class ResNET:
+    def __init__(self, data_dir, batch_size, epochs, img_shape, img_depth):
+        self.data_dir = data_dir
+        self.batch_size = batch_size
+        self.epochs = epochs
+        self.img_shape = (img_shape, img_shape, img_depth)
+        self.optimizer = tf.keras.optimizers.Adam(learning_rate=1e-4)
+
+
+    def train(self):
+        model = RESNET.building_network(self.img_shape)
+
+        pipeline = datapipeline.Data_pipeline(directory = self.data_dir, img_shape = self.img_shape)
+
+        x_train, x_validation, y_train, y_validation = pipeline.import_data()
+
+
+        for epoch in range (self.epochs):
+            time_start = time.time()
+
+            index_import = np.random.randint(low=0, high=x_train.shape[0] ,size=int(self.batch_size))
+            x_minibatch = x_train[index_import]
+            x_minibatch = pipeline.augmentaion(x_minibatch)
+            y_minibatch = y_train[index_import]
+            train_accuracy = model.train_on_batch(x_minibatch, y_minibatch)
+
+
+            index_import = np.random.randint(low=0, high=y_validation.shape[0] ,size=int(self.batch_size))
+            x_minibatch = x_validation[index_import]
+            y_minibatch = y_validation[index_import]
+            validation_accuracy=model.evaluate(x_minibatch,y_minibatch,verbose = 0)
+
+
+            time_end = time.time()
+            print("\nEpoch:%3d                          Duration:%1.3f s " % (epoch, (round(time_end-time_start,3))))
+            print("Train loss:%2.3f                     Train accuracy:%1.2f" % ((round(train_accuracy[0], 2)),         (round(train_accuracy[1],2))))
+            print("Valid loss:%2.3f                     Valid accuracy:%1.2f" % ((round(validation_accuracy[0], 2)),    (round(validation_accuracy[1],2))))
+
+
+
+        
+
+if __name__ == "__main__":
+    diretory = "E://Data//Brain Tumor Images"
+    resnet = ResNET(data_dir = diretory, batch_size = 62, epochs = 5000, img_shape = 256, img_depth = 1)
+    resnet.train()
