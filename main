@@ -1,7 +1,7 @@
 import numpy as np
 import tensorflow as tf
 import os
-import tensorflow-addons as tfa
+import tensorflow_addons as tfa
 import datapipeline
 import RESNET
 import time
@@ -12,7 +12,7 @@ class ResNET:
         self.batch_size = batch_size
         self.epochs = epochs
         self.img_shape = (img_shape, img_shape, img_depth)
-        self.optimizer = tfa.optimizers.AdaBelief(learning_rate=1e-3, warmup_proportion=0.1, min_lr=1e-5, total_steps=self.batch_size)
+        self.optimizer = tfa.optimizers.AdaBelief(learning_rate=1e-3, warmup_proportion=0.2, min_lr=5e-5, total_steps=self.batch_size)
 
 
     def train(self):
@@ -20,7 +20,7 @@ class ResNET:
 
         pipeline = datapipeline.Data_pipeline(directory = self.data_dir, img_shape = self.img_shape)
 
-        x_train, x_validation, y_train, y_validation = pipeline.import_data()
+        x_train, x_validation, y_train, y_validation = pipeline.import_data(train = True)
 
 
         for epoch in range (self.epochs):
@@ -43,12 +43,42 @@ class ResNET:
             print("\nEpoch:%3d                          Duration:%1.3f s " % (epoch, (round(time_end-time_start,3))))
             print("Train loss:%2.3f                     Train accuracy:%1.2f" % ((round(train_accuracy[0], 2)),         (round(train_accuracy[1],2))))
             print("Valid loss:%2.3f                     Valid accuracy:%1.2f" % ((round(validation_accuracy[0], 2)),    (round(validation_accuracy[1],2))))
+    
 
+        try:
+            os.mkdir(os.getcwd() + os.sep + "MODEL")
+        except: 
+            print("Model directory already excists")
+
+        print("Saving model")
+        model_dir = os.getcwd() + os.sep + "MODEL" + os.sep + "RESNET_PNEUNOMIA.h5"
+        model.save(model_dir)
+
+
+
+    def test(self):
+        print("Testing trained model")
+        model = tf.keras.models.load_model(os.getcwd() + os.sep + "MODEL" + os.sep + "RESNET_PNEUNOMIA.h5")
+        pipeline = datapipeline.Data_pipeline(directory = self.data_dir, img_shape = self.img_shape)
+
+        x_test, y_test = pipeline.import_data(test=True)
+
+        y_prediction = model.predict(x_test,y_test,verbose = 1)
+        import sklearn
+
+        cm = sklearn.metrics.confusion_matrix(y_true = y_test, y_pred = y_prediction)
+        print(cm)
 
 
         
 
 if __name__ == "__main__":
-    diretory = "E://Data//Pneunomia//chest_xray//Train"
-    resnet = ResNET(data_dir = diretory, batch_size = 80, epochs = 1000, img_shape = 512, img_depth = 1)
+    diretory = "C://Users//renne//Desktop//Master//Projekte//Data//Pneunomia//chest_xray//train"
+    resnet = ResNET(data_dir = diretory, batch_size = 80, epochs = 5_000, img_shape = 512, img_depth = 1)
     resnet.train()
+
+    diretory = "C://Users//renne//Desktop//Master//Projekte//Data//Pneunomia//chest_xray//test"
+    resnet = ResNET(data_dir = diretory, batch_size = 80, epochs = 0, img_shape = 512, img_depth = 1)
+    resnet.test()
+
+
