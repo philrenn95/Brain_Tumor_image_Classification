@@ -1,10 +1,10 @@
 import numpy as np
 import tensorflow as tf
 import os
+import tensorflow-addons as tfa
 import datapipeline
 import RESNET
 import time
-
 
 class ResNET:
     def __init__(self, data_dir, batch_size, epochs, img_shape, img_depth):
@@ -12,11 +12,11 @@ class ResNET:
         self.batch_size = batch_size
         self.epochs = epochs
         self.img_shape = (img_shape, img_shape, img_depth)
-        self.optimizer = tf.keras.optimizers.Adam(learning_rate=1e-4)
+        self.optimizer = tfa.optimizers.AdaBelief(learning_rate=1e-3, warmup_proportion=0.1, min_lr=1e-5, total_steps=self.batch_size)
 
 
     def train(self):
-        model = RESNET.building_network(self.img_shape)
+        model = RESNET.building_network(self.img_shape, self.optimizer)
 
         pipeline = datapipeline.Data_pipeline(directory = self.data_dir, img_shape = self.img_shape)
 
@@ -49,6 +49,6 @@ class ResNET:
         
 
 if __name__ == "__main__":
-    diretory = "E://Data//Brain Tumor Images"
-    resnet = ResNET(data_dir = diretory, batch_size = 62, epochs = 5000, img_shape = 256, img_depth = 1)
+    diretory = "E://Data//Pneunomia//chest_xray//Train"
+    resnet = ResNET(data_dir = diretory, batch_size = 80, epochs = 1000, img_shape = 512, img_depth = 1)
     resnet.train()
