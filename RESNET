@@ -7,14 +7,7 @@ from keras.layers import Input, Dense, Conv2D, MaxPooling2D, Dropout, Flatten, c
 from keras.models import Model
 from tensorflow.keras import regularizers
 
-l2_param = 0.001
-
-optimizer = tf.keras.optimizers.Adam( learning_rate=2e-3,
-    beta_1=0.9,
-    beta_2=0.999,
-    epsilon=1e-07,
-    amsgrad=False,
-    name='Adam')
+l2_param = 0.1
 
 #Conv-BatchNorm-ReLU block
 def conv_batchnorm_relu(x, filters, kernel_size, strides=1):
@@ -72,14 +65,16 @@ def resnet_block(x, filters, reps, strides):
 
 
 
-def building_network(img_shape):
+def building_network(img_shape, optimizer):
 
     input = keras.layers.Input(shape=(img_shape))
 
-    x = conv_batchnorm_relu(input, filters=8, kernel_size=7, strides=2)
+    x = conv_batchnorm_relu(input, filters=4, kernel_size=7, strides=2)
+    x = MaxPooling2D(pool_size = 3, strides =2)(x)
     x = resnet_block(x, filters=8, reps =1, strides=2)
     x = resnet_block(x, filters=16, reps =1, strides=2)
     x = resnet_block(x, filters=32, reps =1, strides=2)
+    x = resnet_block(x, filters=64, reps =1, strides=2)
     x = GlobalAveragePooling2D()(x)        
 
     #Size 8x8
