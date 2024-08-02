@@ -5,80 +5,79 @@ import tensorflow_addons as tfa
 import datapipeline
 import RESNET
 import time
+import sklearn.metrics
 
-class ResNET:
+class ResNetModel:
     def __init__(self, data_dir, batch_size, epochs, img_shape, img_depth):
         self.data_dir = data_dir
         self.batch_size = batch_size
         self.epochs = epochs
         self.img_shape = (img_shape, img_shape, img_depth)
-        self.optimizer = tfa.optimizers.AdaBelief(learning_rate=1e-3, warmup_proportion=0.2, min_lr=5e-5, total_steps=self.batch_size)
-
+        self.optimizer = tfa.optimizers.AdaBelief(
+            learning_rate=1e-3, 
+            warmup_proportion=0.2, 
+            min_lr=5e-5, 
+            total_steps=self.batch_size
+        )
 
     def train(self):
         model = RESNET.building_network(self.img_shape, self.optimizer)
+        pipeline = datapipeline.Data_pipeline(directory=self.data_dir, img_shape=self.img_shape)
+        x_train, x_validation, y_train, y_validation = pipeline.import_data(train=True)
 
-        pipeline = datapipeline.Data_pipeline(directory = self.data_dir, img_shape = self.img_shape)
+        for epoch in range(self.epochs):
+            epoch_start_time = time.time()
 
-        x_train, x_validation, y_train, y_validation = pipeline.import_data(train = True)
+            x_minibatch, y_minibatch = self._get_minibatch(x_train, y_train, pipeline)
+            train_loss, train_accuracy = model.train_on_batch(x_minibatch, y_minibatch)
 
+            x_minibatch, y_minibatch = self._get_minibatch(x_validation, y_validation)
+            validation_loss, validation_accuracy = model.evaluate(x_minibatch, y_minibatch, verbose=0)
 
-        for epoch in range (self.epochs):
-            time_start = time.time()
+            epoch_end_time = time.time()
+            self._log_epoch_results(epoch, epoch_end_time - epoch_start_time, train_loss, train_accuracy, validation_loss, validation_accuracy)
 
-            index_import = np.random.randint(low=0, high=x_train.shape[0] ,size=int(self.batch_size))
-            x_minibatch = x_train[index_import]
-            x_minibatch = pipeline.augmentaion(x_minibatch)
-            y_minibatch = y_train[index_import]
-            train_accuracy = model.train_on_batch(x_minibatch, y_minibatch)
-
-
-            index_import = np.random.randint(low=0, high=y_validation.shape[0] ,size=int(self.batch_size))
-            x_minibatch = x_validation[index_import]
-            y_minibatch = y_validation[index_import]
-            validation_accuracy=model.evaluate(x_minibatch,y_minibatch,verbose = 0)
-
-
-            time_end = time.time()
-            print("\nEpoch:%3d                          Duration:%1.3f s " % (epoch, (round(time_end-time_start,3))))
-            print("Train loss:%2.3f                     Train accuracy:%1.2f" % ((round(train_accuracy[0], 2)),         (round(train_accuracy[1],2))))
-            print("Valid loss:%2.3f                     Valid accuracy:%1.2f" % ((round(validation_accuracy[0], 2)),    (round(validation_accuracy[1],2))))
-    
-
-        try:
-            os.mkdir(os.getcwd() + os.sep + "MODEL")
-        except: 
-            print("Model directory already excists")
-
-        print("Saving model")
-        model_dir = os.getcwd() + os.sep + "MODEL" + os.sep + "RESNET_PNEUNOMIA.h5"
-        model.save(model_dir)
-
-
+        self._save_model(model)
 
     def test(self):
         print("Testing trained model")
-        model = tf.keras.models.load_model(os.getcwd() + os.sep + "MODEL" + os.sep + "RESNET_PNEUNOMIA.h5")
-        pipeline = datapipeline.Data_pipeline(directory = self.data_dir, img_shape = self.img_shape)
-
+        model = tf.keras.models.load_model(self._get_model_path())
+        pipeline = datapipeline.Data_pipeline(directory=self.data_dir, img_shape=self.img_shape)
         x_test, y_test = pipeline.import_data(test=True)
 
-        y_prediction = model.predict(x_test,y_test,verbose = 1)
-        import sklearn
+        y_pred = model.predict(x_test, verbose=1)
+        confusion_matrix = sklearn.metrics.confusion_matrix(y_true=y_test, y_pred=y_pred)
+        print(confusion_matrix)
 
-        cm = sklearn.metrics.confusion_matrix(y_true = y_test, y_pred = y_prediction)
-        print(cm)
+    def _get_minibatch(self, x_data, y_data, pipeline=None):
+        indices = np.random.randint(0, x_data.shape[0], size=self.batch_size)
+        x_minibatch = x_data[indices]
+        if pipeline:
+            x_minibatch = pipeline.augmentaion(x_minibatch)
+        y_minibatch = y_data[indices]
+        return x_minibatch, y_minibatch
 
+    def _log_epoch_results(self, epoch, duration, train_loss, train_accuracy, validation_loss, validation_accuracy):
+        print(f"\nEpoch: {epoch:3d}    Duration: {duration:.3f} s")
+        print(f"Train loss: {train_loss:.3f}    Train accuracy: {train_accuracy:.2f}")
+        print(f"Valid loss: {validation_loss:.3f}    Valid accuracy: {validation_accuracy:.2f}")
 
-        
+    def _save_model(self, model):
+        model_dir = os.path.join(os.getcwd(), "MODEL")
+        if not os.path.exists(model_dir):
+            os.makedirs(model_dir)
+        model_path = os.path.join(model_dir, "RESNET_PNEUMONIA.h5")
+        print("Saving model")
+        model.save(model_path)
+
+    def _get_model_path(self):
+        return os.path.join(os.getcwd(), "MODEL", "RESNET_PNEUMONIA.h5")
 
 if __name__ == "__main__":
-    diretory = "C://Users//renne//Desktop//Master//Projekte//Data//Pneunomia//chest_xray//train"
-    resnet = ResNET(data_dir = diretory, batch_size = 80, epochs = 5_000, img_shape = 512, img_depth = 1)
+    train_directory = "C://Users//renne//Desktop//Master//Projekte//Data//Pneunomia//chest_xray//train"
+    resnet = ResNetModel(data_dir=train_directory, batch_size=80, epochs=5000, img_shape=512, img_depth=1)
     resnet.train()
 
-    diretory = "C://Users//renne//Desktop//Master//Projekte//Data//Pneunomia//chest_xray//test"
-    resnet = ResNET(data_dir = diretory, batch_size = 80, epochs = 0, img_shape = 512, img_depth = 1)
+    test_directory = "C://Users//renne//Desktop//Master//Projekte//Data//Pneunomia//chest_xray//test"
+    resnet = ResNetModel(data_dir=test_directory, batch_size=80, epochs=0, img_shape=512, img_depth=1)
     resnet.test()
-
-
