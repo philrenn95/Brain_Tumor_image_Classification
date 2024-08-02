@@ -1,67 +1,108 @@
-import os 
+import os
 import numpy as np
 import cv2
 import glob
-import sklearn
 from skimage.util import random_noise
 import tensorflow as tf
+from sklearn.model_selection import train_test_split
 
-class Data_pipeline:
-    def __init__(self, directory,  img_shape):
-        self.dir = directory
-        self.dir_yes = self.dir + "//yes"
-        self.dir_no = self.dir + "//no"
+class DataPipeline:
+    def __init__(self, directory, img_shape):
+        """
+        Initialisiert die DataPipeline mit dem Verzeichnis der Daten und der gewünschten Bildgröße.
+
+        Parameter:
+        directory (str): Das Verzeichnis, das die 'yes' und 'no' Unterverzeichnisse enthält.
+        img_shape (tuple): Die gewünschte Bildgröße als Tuple (Breite, Höhe, Tiefe).
+        """
+        self.directory = directory
+        self.yes_dir = os.path.join(self.directory, "yes")
+        self.no_dir = os.path.join(self.directory, "no")
         self.img_shape = img_shape
-        self.image_gen = tf.keras.preprocessing.image.ImageDataGenerator(horizontal_flip = True, vertical_flip = True,)
+        self.image_gen = tf.keras.preprocessing.image.ImageDataGenerator(
+            horizontal_flip=True, 
+            vertical_flip=True
+        )
 
+    def import_data(self, validation_size=0.1):
+        """
+        Importiert und verarbeitet die Daten, teilt sie in Trainings- und Validierungssets auf.
 
-    def import_data(self, validation_size = 0.1):
-        x = []
-        y = []
+        Parameter:
+        validation_size (float): Der Anteil der Daten, die für die Validierung verwendet werden sollen (zwischen 0 und 1).
 
-        for momen_file in glob.glob(self.dir_yes+"//*"):
-            image = cv2.imread(momen_file, 0)
-            if (image.shape[0] != self.img_shape[0] or image.shape[1]!= self.img_shape[1]):
-                image = cv2.resize(image, (self.img_shape[0], self.img_shape[1]))
+        Rückgabe:
+        tuple: Vier Numpy-Arrays, die die Trainingsbilder, Validierungsbilder, Trainingslabels und Validierungslabels enthalten.
+        """
+        x, y = self._load_images(self.yes_dir, 1)
+        x_no, y_no = self._load_images(self.no_dir, 0)
+        
+        x.extend(x_no)
+        y.extend(y_no)
 
-            image = np.array(image)
-            cv2.normalize(image, image, 0, 255, cv2.NORM_MINMAX)
-            image = image/255.0
-            x.append(image)
-            y.append(1)
+        x_train, x_validation, y_train, y_validation = train_test_split(
+            x, y, test_size=validation_size
+        )
 
-        for momen_file in glob.glob(self.dir_no+"//*"):
-            image = cv2.imread(momen_file, 0)
-            if (image.shape[0] != self.img_shape[0] or image.shape[1]!= self.img_shape[1]):
-                image = cv2.resize(image, (self.img_shape[0], self.img_shape[1]))
-            image = np.array(image)
-            cv2.normalize(image, image, 0, 255, cv2.NORM_MINMAX)
-            image = image/255.0
-            x.append(image)
-            y.append(0)
+        return (
+            np.array(x_train),
+            np.array(x_validation),
+            np.array(y_train),
+            np.array(y_validation)
+        )
 
+    def _load_images(self, directory, label):
+        """
+        Lädt und verarbeitet Bilder aus einem angegebenen Verzeichnis und weist ihnen ein Label zu.
 
+        Parameter:
+        directory (str): Das Verzeichnis, das die Bilder enthält.
+        label (int): Das Label, das den Bildern in diesem Verzeichnis zugewiesen wird (1 für 'yes', 0 für 'no').
 
-        from sklearn.model_selection import train_test_split
-        x_train, x_validation, y_train, y_validation = train_test_split(x, y, test_size = validation_size)
+        Rückgabe:
+        tuple: Zwei Listen, eine mit den verarbeiteten Bildern und eine mit den entsprechenden Labels.
+        """
+        images = []
+        labels = []
 
-        x_train = np.array(x_train)
-        y_train = np.array(y_train)
+        for file in glob.glob(os.path.join(directory, "*")):
+            image = cv2.imread(file, cv2.IMREAD_GRAYSCALE)
+            image = self._preprocess_image(image)
+            images.append(image)
+            labels.append(label)
 
-        x_validation = np.array(x_validation)
-        y_validation = np.array(y_validation)
+        return images, labels
 
-        return x_train, x_validation, y_train, y_validation
+    def _preprocess_image(self, image):
+        """
+        Verarbeitet ein Bild durch Größenänderung und Normalisierung.
 
+        Parameter:
+        image (ndarray): Das zu verarbeitende Bild.
 
+        Rückgabe:
+        ndarray: Das verarbeitete und normalisierte Bild.
+        """
+        if image.shape[:2] != self.img_shape[:2]:
+            image = cv2.resize(image, (self.img_shape[0], self.img_shape[1]))
+        image = cv2.normalize(image, None, 0, 255, cv2.NORM_MINMAX)
+        return image / 255.0
 
-    def augmentaion(self, x_train):
+    def augment_images(self, images):
+        """
+        Führt Datenaugmentation auf einer Liste von Bildern durch.
 
-        for i in range(0, len(x_train)):
-            x_train[i] = self.image_gen.random_transform( x_train[i])
-            x_train[i] = random_noise( x_train[i], mode='s&p',amount=0.001)
+        Parameter:
+        images (ndarray): Eine Liste von Bildern, die augmentiert werden sollen.
 
-        return x_train
+        Rückgabe:
+        ndarray: Eine Liste von augmentierten Bildern.
+        """
+        augmented_images = []
 
+        for image in images:
+            image = self.image_gen.random_transform(image)
+            image = random_noise(image, mode='s&p', amount=0.001)
+            augmented_images.append(image)
 
-
+        return np.array(augmented_images)
