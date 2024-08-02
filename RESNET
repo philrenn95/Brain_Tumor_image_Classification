@@ -1,89 +1,140 @@
-from keras.layers.advanced_activations import LeakyReLU, ReLU
-from keras.layers.normalization.batch_normalization import BatchNormalization
-from tensorflow.keras.optimizers import Adam
 import tensorflow as tf
-import keras
-from keras.layers import Input, Dense, Conv2D, MaxPooling2D, Dropout, Flatten, concatenate, Add, GlobalAveragePooling2D
-from keras.models import Model
-from tensorflow.keras import regularizers
+from tensorflow.keras.layers import (
+    Input, Dense, Conv2D, MaxPooling2D, Flatten, Add, 
+    GlobalAveragePooling2D, BatchNormalization, ReLU
+)
+from tensorflow.keras.models import Model
+from tensorflow.keras.regularizers import l2
+from tensorflow.keras.optimizers import Adam
 
+# Regularization parameter for L2 regularization
 l2_param = 0.1
 
-#Conv-BatchNorm-ReLU block
+# Convolutional block with Batch Normalization and ReLU activation
 def conv_batchnorm_relu(x, filters, kernel_size, strides=1):
+    """
+    Apply a convolutional layer followed by batch normalization and ReLU activation.
+
+    Parameters:
+    x (tf.Tensor): Input tensor.
+    filters (int): Number of filters in the convolutional layer.
+    kernel_size (int or tuple): Size of the convolutional kernel.
+    strides (int or tuple, optional): Strides of the convolution. Defaults to 1.
+
+    Returns:
+    tf.Tensor: Output tensor after applying convolution, batch normalization, and ReLU.
+    """
     x = Conv2D(
         filters=filters, 
         kernel_size=kernel_size, 
         strides=strides, 
-        padding = 'same',
-        kernel_regularizer = tf.keras.regularizers.l2(l2_param),
-        bias_regularizer=tf.keras.regularizers.l2(l2_param))(x)
+        padding='same',
+        kernel_regularizer=l2(l2_param),
+        bias_regularizer=l2(l2_param)
+    )(x)
     x = BatchNormalization()(x)
     x = ReLU()(x)
     return x
 
-#Identity block
+# Identity block for ResNet
 def identity_block(tensor, filters):
-    
+    """
+    Apply an identity block consisting of convolutional layers with batch normalization and ReLU.
+
+    Parameters:
+    tensor (tf.Tensor): Input tensor.
+    filters (int): Number of filters for the convolutional layers.
+
+    Returns:
+    tf.Tensor: Output tensor after applying the identity block.
+    """
     x = conv_batchnorm_relu(tensor, filters=filters, kernel_size=1, strides=1)
     x = conv_batchnorm_relu(x, filters=filters, kernel_size=3, strides=1)
     x = Conv2D(filters=4*filters, kernel_size=1, strides=1)(x)
     x = BatchNormalization()(x)
-    x = Add()([tensor,x])    #skip connection
+    x = Add()([tensor, x])  # Skip connection
     x = ReLU()(x)
-    
     return x
 
-#Projection block
+# Projection block for ResNet
 def projection_block(tensor, filters, strides):
-    
-    #left stream
+    """
+    Apply a projection block consisting of convolutional layers with batch normalization, ReLU, and a projection shortcut.
+
+    Parameters:
+    tensor (tf.Tensor): Input tensor.
+    filters (int): Number of filters for the convolutional layers.
+    strides (int): Strides for the convolutional layers.
+
+    Returns:
+    tf.Tensor: Output tensor after applying the projection block.
+    """
+    # Left stream (main path)
     x = conv_batchnorm_relu(tensor, filters=filters, kernel_size=1, strides=strides)
     x = conv_batchnorm_relu(x, filters=filters, kernel_size=3, strides=1)
     x = Conv2D(filters=4*filters, kernel_size=1, strides=1)(x)
     x = BatchNormalization()(x)
     
-    #right stream
+    # Right stream (shortcut connection)
     shortcut = Conv2D(filters=4*filters, kernel_size=1, strides=strides)(tensor)
     shortcut = BatchNormalization()(shortcut)
     
-    x = Add()([shortcut,x])    #skip connection
+    x = Add()([shortcut, x])  # Skip connection
     x = ReLU()(x)
-    
     return x
 
-
-#Adding a projection block to smaller the images /2 then add identity block 
+# ResNet block consisting of a projection block followed by multiple identity blocks
 def resnet_block(x, filters, reps, strides):
-    
+    """
+    Apply a ResNet block consisting of a projection block followed by multiple identity blocks.
+
+    Parameters:
+    x (tf.Tensor): Input tensor.
+    filters (int): Number of filters for the convolutional layers.
+    reps (int): Number of identity blocks to apply.
+    strides (int): Strides for the projection block.
+
+    Returns:
+    tf.Tensor: Output tensor after applying the ResNet block.
+    """
     x = projection_block(x, filters, strides)
-    for _ in range(reps-1):
-        x = identity_block(x,filters)
-        
+    for _ in range(reps - 1):
+        x = identity_block(x, filters)
     return x
 
+# Function to build the ResNet model
+def build_network(img_shape, optimizer):
+    """
+    Build a ResNet model.
 
+    Parameters:
+    img_shape (tuple): Shape of the input images (height, width, channels).
+    optimizer (tf.keras.optimizers.Optimizer): Optimizer for compiling the model.
 
-
-def building_network(img_shape, optimizer):
-
-    input = keras.layers.Input(shape=(img_shape))
-
-    x = conv_batchnorm_relu(input, filters=4, kernel_size=7, strides=2)
-    x = MaxPooling2D(pool_size = 3, strides =2)(x)
-    x = resnet_block(x, filters=8, reps =1, strides=2)
-    x = resnet_block(x, filters=16, reps =1, strides=2)
-    x = resnet_block(x, filters=32, reps =1, strides=2)
-    x = resnet_block(x, filters=64, reps =1, strides=2)
-    x = GlobalAveragePooling2D()(x)        
-
-    #Size 8x8
-    #FC block image size 8x8
+    Returns:
+    tf.keras.Model: Compiled ResNet model.
+    """
+    input_layer = Input(shape=img_shape)
+    
+    # Initial convolution and pooling layers
+    x = conv_batchnorm_relu(input_layer, filters=4, kernel_size=7, strides=2)
+    x = MaxPooling2D(pool_size=3, strides=2)(x)
+    
+    # Adding ResNet blocks
+    x = resnet_block(x, filters=8, reps=1, strides=2)
+    x = resnet_block(x, filters=16, reps=1, strides=2)
+    x = resnet_block(x, filters=32, reps=1, strides=2)
+    x = resnet_block(x, filters=64, reps=1, strides=2)
+    
+    # Global average pooling and output layer
+    x = GlobalAveragePooling2D()(x)
     flatten = Flatten()(x)
-    classification = Dense(units = 1, activation="sigmoid")(flatten)
-
-    model = Model(input, classification)
-
-    model.compile(optimizer=optimizer, loss='binary_crossentropy', metrics=['accuracy',  ])
-
+    output_layer = Dense(units=1, activation="sigmoid")(flatten)
+    
+    # Creating the model
+    model = Model(inputs=input_layer, outputs=output_layer)
+    
+    # Compiling the model
+    model.compile(optimizer=optimizer, loss='binary_crossentropy', metrics=['accuracy'])
+    
     return model
