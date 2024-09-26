@@ -9,10 +9,24 @@ import sklearn.metrics
 
 class ResNetModel:
     def __init__(self, data_dir, batch_size, epochs, img_shape, img_depth):
+        """
+        Initialisiert das ResNetModel.
+
+        Eingabeparameter:
+        - data_dir (str): Pfad zum Verzeichnis der Trainingsdaten.
+        - batch_size (int): Größe der Mini-Batches, die während des Trainings verwendet werden.
+        - epochs (int): Anzahl der Trainingsepochen.
+        - img_shape (int): Höhe und Breite der Bilder (quadratische Bilder werden angenommen).
+        - img_depth (int): Anzahl der Kanäle im Bild (z.B. 1 für Graustufenbilder).
+
+        Es wird auch ein optimierter AdaBelief-Optimizer erstellt.
+        """
         self.data_dir = data_dir
         self.batch_size = batch_size
         self.epochs = epochs
         self.img_shape = (img_shape, img_shape, img_depth)
+        
+        # Optimizer mit AdaBelief, einem adaptiven Lernraten-Optimierer.
         self.optimizer = tfa.optimizers.AdaBelief(
             learning_rate=1e-3, 
             warmup_proportion=0.2, 
@@ -21,63 +35,82 @@ class ResNetModel:
         )
 
     def train(self):
+        """
+        Trainiert das Modell.
+
+        Lädt die Daten über den DataPipeline-Klasse, erstellt das Modell und trainiert es über
+        eine gegebene Anzahl von Epochen. Pro Epoche werden Trainings- und Validierungsverluste sowie Genauigkeiten berechnet.
+        """
+        # Erstellen des ResNet-Modells unter Verwendung der Bildform und des Optimizers.
         model = RESNET.building_network(self.img_shape, self.optimizer)
+        
+        # Initialisieren der Datenpipeline und Laden der Trainings- und Validierungsdaten.
         pipeline = datapipeline.Data_pipeline(directory=self.data_dir, img_shape=self.img_shape)
         x_train, x_validation, y_train, y_validation = pipeline.import_data(train=True)
 
         for epoch in range(self.epochs):
             epoch_start_time = time.time()
 
+            # Mini-Batch aus den Trainingsdaten erhalten.
             x_minibatch, y_minibatch = self._get_minibatch(x_train, y_train, pipeline)
+            # Training des Modells auf dem Mini-Batch.
             train_loss, train_accuracy = model.train_on_batch(x_minibatch, y_minibatch)
 
+            # Mini-Batch aus den Validierungsdaten erhalten.
             x_minibatch, y_minibatch = self._get_minibatch(x_validation, y_validation)
+            # Validierung des Modells auf dem Mini-Batch.
             validation_loss, validation_accuracy = model.evaluate(x_minibatch, y_minibatch, verbose=0)
 
             epoch_end_time = time.time()
+            # Ergebnisse des Trainings und der Validierung für diese Epoche ausgeben.
             self._log_epoch_results(epoch, epoch_end_time - epoch_start_time, train_loss, train_accuracy, validation_loss, validation_accuracy)
 
+        # Speichern des trainierten Modells.
         self._save_model(model)
 
     def test(self):
+        """
+        Testet das gespeicherte Modell auf Testdaten.
+
+        Lädt das gespeicherte Modell und führt eine Vorhersage auf den Testdaten durch.
+        Gibt eine Verwirrungsmatrix (Confusion Matrix) für die Testergebnisse aus.
+        """
         print("Testing trained model")
+        
+        # Laden des gespeicherten Modells.
         model = tf.keras.models.load_model(self._get_model_path())
+        
+        # Laden der Testdaten über die Datenpipeline.
         pipeline = datapipeline.Data_pipeline(directory=self.data_dir, img_shape=self.img_shape)
         x_test, y_test = pipeline.import_data(test=True)
 
+        # Vorhersage mit dem Modell auf den Testdaten.
         y_pred = model.predict(x_test, verbose=1)
+        
+        # Verwirrungsmatrix für die wahren und vorhergesagten Werte berechnen.
         confusion_matrix = sklearn.metrics.confusion_matrix(y_true=y_test, y_pred=y_pred)
         print(confusion_matrix)
 
     def _get_minibatch(self, x_data, y_data, pipeline=None):
+        """
+        Erzeugt einen Mini-Batch zufällig ausgewählter Daten.
+
+        Eingabeparameter:
+        - x_data (np.ndarray): Eingabedaten (z.B. Bilder).
+        - y_data (np.ndarray): Zielwerte (Labels).
+        - pipeline (Data_pipeline): Optional, eine Datenpipeline für die Datenaugmentation.
+
+        Ausgabewerte:
+        - x_minibatch (np.ndarray): Mini-Batch der Eingabedaten.
+        - y_minibatch (np.ndarray): Mini-Batch der Zielwerte.
+        """
+        # Zufällige Indizes für den Mini-Batch auswählen.
         indices = np.random.randint(0, x_data.shape[0], size=self.batch_size)
         x_minibatch = x_data[indices]
+        
+        # Falls eine Pipeline vorhanden ist, wird die Augmentation angewendet.
         if pipeline:
             x_minibatch = pipeline.augmentaion(x_minibatch)
+        
         y_minibatch = y_data[indices]
         return x_minibatch, y_minibatch
-
-    def _log_epoch_results(self, epoch, duration, train_loss, train_accuracy, validation_loss, validation_accuracy):
-        print(f"\nEpoch: {epoch:3d}    Duration: {duration:.3f} s")
-        print(f"Train loss: {train_loss:.3f}    Train accuracy: {train_accuracy:.2f}")
-        print(f"Valid loss: {validation_loss:.3f}    Valid accuracy: {validation_accuracy:.2f}")
-
-    def _save_model(self, model):
-        model_dir = os.path.join(os.getcwd(), "MODEL")
-        if not os.path.exists(model_dir):
-            os.makedirs(model_dir)
-        model_path = os.path.join(model_dir, "RESNET_PNEUMONIA.h5")
-        print("Saving model")
-        model.save(model_path)
-
-    def _get_model_path(self):
-        return os.path.join(os.getcwd(), "MODEL", "RESNET_PNEUMONIA.h5")
-
-if __name__ == "__main__":
-    train_directory = "C://Users//renne//Desktop//Master//Projekte//Data//Pneunomia//chest_xray//train"
-    resnet = ResNetModel(data_dir=train_directory, batch_size=80, epochs=5000, img_shape=512, img_depth=1)
-    resnet.train()
-
-    test_directory = "C://Users//renne//Desktop//Master//Projekte//Data//Pneunomia//chest_xray//test"
-    resnet = ResNetModel(data_dir=test_directory, batch_size=80, epochs=0, img_shape=512, img_depth=1)
-    resnet.test()
